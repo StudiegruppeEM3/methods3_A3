@@ -7,6 +7,21 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
+log2prob = function(logit){
+    odds = exp(logit)
+        prop = odds/(1+odds)
+    return(prop)
+}
+log2prob(3.5637-0.5223*10)
+
+log2prob(11.007982+0.8622*3)
+
+exp(3.5637-0.5223*10)/(1+exp(3.5637-0.5223*10))
+#when ados = 10 the model predicts that there is 16% chance of that child #being TD.
+
+
+
 ```
 
 ## Assignment 3 - Part 1 - Assessing voice in schizophrenia
