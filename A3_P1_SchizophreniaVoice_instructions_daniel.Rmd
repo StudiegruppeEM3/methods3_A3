@@ -1,0 +1,216 @@
+---
+title: "Assignment 3 - Part 1 - Voice In Schizophrenia"
+author: "Daniel"
+date: "Oktober 01, 2020"
+output: html_document
+---
+
+```{r}
+#Load packages
+pacman::p_load(readr,dplyr,stringr,lmerTest,Metrics,caret,merTools, tidyverse, simr, sjmisc, FinCal, gmodels)
+
+#Import pitch file
+files = list.files("/Users/Daniel/Documents/Cognitive Science/3rd Semester/Methods 3/methods3_A3/Pitch/", "*.txt", full.names = TRUE)
+
+#Empty dataframe
+store = NULL
+
+#Loop through all the files and create one big dataframe
+for (i in 1:length(files)) {
+        lille = read.table(files[i], header = T) #New dataframe with time and f0
+        
+        mindre = setNames(data.frame(matrix(ncol = 1, nrow = 1)), c("dirname")) #Empty df
+        
+        #Adding time variables
+        mindre$dirname = str_sub(files[i], 85,)
+        mindre$Tmean = mean(lille$time)
+        mindre$Tmedian = median(lille$time)
+        mindre$Tsd = sd(lille$time)
+        Trange = range(lille$time)
+        mindre$Trangemin = Trange[1]
+        mindre$Trangemax = Trange[2]
+        mindre$Tiqr = IQR(lille$time)
+        mindre$Tmad = mad(lille$time)
+        mindre$Tcv = coefficient.variation(sd(lille$time),mean(lille$time))
+        ci = ci(lille$time)
+        mindre$Tcilower = ci[2]
+        mindre$Tciupper = ci[3]
+        mindre$Tcierror = ci[4]
+        
+        #Adding f0 variables
+        mindre$Fmean = mean(lille$f0)
+        mindre$Fmedian = median(lille$f0)
+        mindre$Fsd = sd(lille$f0)
+        Frange = range(lille$f0)
+        mindre$Frangemin = Frange[1]
+        mindre$Frangemax = Frange[2]
+        mindre$Fiqr = IQR(lille$f0)
+        mindre$Fmad = mad(lille$f0)
+        mindre$Fcv = coefficient.variation(sd(lille$f0),mean(lille$f0))
+        ci = ci(lille$f0)
+        mindre$Fcilower = ci[2]
+        mindre$Fciupper = ci[3]
+        mindre$Fcierror = ci[4]
+        
+        #For each loop combine the new small df with the df from out of the loop
+        store = rbind(store,mindre)
+        
+        print(i) #Show how many files it has looped through
+        
+}
+
+#Write a csv file with the data
+write.csv(store, "storev2.csv")
+```
+
+Adding the variables to the data frame
+```{r}
+#load pitch
+pitch = read.csv("storev2.csv")
+
+#Study
+x = sub(".*y","",pitch$dirname)
+pitch$study = sub("D.*","",x)
+
+#Diagnosis
+x = sub(".*D","",pitch$dirname)
+pitch$diagnosis = sub("S.*","",x)
+
+#Subject
+x = sub(".*S","",pitch$dirname)
+pitch$subject = sub("T.*","",x)
+
+#Trial
+x = sub(".*T","",pitch$dirname)
+x = str_sub(x,0,2)
+pitch$trial = str_remove(x, "[_.]")
+
+#make unique name for subject (Study + subject + diagnosis)
+pitch$name = as.numeric(paste(pitch$study, pitch$subject, sep = ""))
+pitch$name = as.numeric(paste(pitch$name, pitch$diagnosis, sep = ""))
+```
+
+
+### Now you need to merge demographic/clinical, duration and pitch data
+
+```{r}
+#Load emographic data
+demo = read.csv("DemographicData.csv",sep = ";")
+
+#Adding a "0" to particpant number from study 6 and removing study 7
+demo6 = filter(demo, demo$Study == "6")
+demo6$name = as.numeric(paste(demo6$Study, demo6$Participant, sep = "0"))
+demou6 = filter(demo, demo$Study != "6")
+demou6 = filter(demou6, demou6$Study != "7")
+
+#Adding a unique name
+demou6$name = as.numeric(paste(demou6$Study, demou6$Participant, sep = ""))
+demo = rbind(demou6, demo6)
+demo$Diagnosis = ifelse(demo$Diagnosis == "Control",0,1)
+demo$name = as.numeric(paste(demo$name, demo$Diagnosis, sep = ""))
+
+#Loading duration (articulation) data
+dura = read.csv("Articulation.csv")
+
+#Adding variables
+durastudy = sub(".*y","",dura$soundname)
+dura$study = sub("D.*","",durastudy)
+durasubject = sub(".*S","",dura$soundname)
+dura$subject = sub("T.*","",durasubject)
+
+dura$diagnosis = sub(".*D","",dura$soundname)
+dura$diagnosis = sub("S.*","",dura$diagnosis)
+
+dura$trial = sub(".*T","",dura$soundname)
+
+#Unique name
+dura$name = as.numeric(paste(dura$study, dura$subject, sep = ""))
+dura$name = as.numeric(paste(dura$name, dura$diagnosis, sep = ""))
+
+
+dura$subject = NULL
+dura$study = NULL
+
+#Merging dataframes
+df = merge(pitch,dura, by = "name")
+df = merge(df,demo, by = "name")
+
+#Save it
+write.csv(df, "df.csv")
+
+```
+
+## Now we need to describe our sample
+
+```{r}
+#load df
+df = read.csv("df.csv")
+
+#select only some columns
+df = df %>% select_("Fmean","name","Fsd","Study","nsyll","npause","dur..s.","phonationtime..s.","speechrate..nsyll.dur.","articulation.rate..nsyll...phonationtime.","ASD..speakingtime.nsyll.", "Diagnosis", "Language","Gender","Age", "Education","SANS", "SAPS","VerbalIQ", "NonVerbalIQ")
+
+#lowercase columns
+df = df %>% rename_at(c("Fsd","Study","nsyll","npause","dur..s.","phonationtime..s.","speechrate..nsyll.dur.","articulation.rate..nsyll...phonationtime.","ASD..speakingtime.nsyll.", "Diagnosis", "Language","Gender","Age", "Education","SANS", "SAPS","VerbalIQ", "NonVerbalIQ"),.funs = tolower)
+
+#renmame columns
+df = df %>% rename(duration = dur..s.,speechdur = phonationtime..s., speechrate = speechrate..nsyll.dur.,articulationrate =  articulation.rate..nsyll...phonationtime.,asd = asd..speakingtime.nsyll.)
+
+#Split by gender
+dff = filter(df, df$gender == "F")
+dfm = filter(df, df$gender == "M")
+
+#Split by study
+dfs1 = filter(df, study == "1")
+dfs2 = filter(df, study == "2")
+dfs3 = filter(df, study == "3")
+dfs4 = filter(df, study == "4")
+dfs5 = filter(df, study == "5")
+dfs6 = filter(df, study == "6")
+
+#Number of participants in each study
+length(unique(dfs1$name))
+length(unique(dfs2$name))
+length(unique(dfs3$name))
+length(unique(dfs4$name))
+length(unique(dfs5$name))
+length(unique(dfs6$name))
+```
+
+```{r}
+#Danish datafram
+dfdan = df %>% filter(df$language == "Danish")
+
+#Chinese dataframe
+dfchi = df %>% filter(df$language != "Danish")
+
+#Adding pauseduration to dataframes
+dfdan$pausedur = (dfdan$duration-dfdan$speechdur)/(dfdan$npause+1)
+dfchi$pausedur = (dfchi$duration-dfchi$speechdur)/(dfchi$npause+1)
+df$pausedur = (df$duration-df$speechdur)/(df$npause+1)
+
+#Select features from danish study to check correlation
+library(Hmisc)
+
+dfselected = dfdan %>%  select_("speechdur","articulationrate","fsd","pausedur")
+dfdancor = rcorr(as.matrix(dfselected))
+dfdancor
+
+#Select features from chinese study to check correlation
+dfselectedchi = dfchi %>%  select_("speechdur","articulationrate","fsd","pausedur")
+dfchicor = rcorr(as.matrix(dfselectedchi))
+dfchicor
+
+mdan = glmer(diagnosis ~ scale(speechdur)+ scale(fsd)+scale(articulationrate)+scale
+           (pausedur)+(1|name), dfdan, family = "binomial")
+summary(mdan)
+
+mchi = glmer(diagnosis ~ scale(speechdur)+ study+scale(fsd)+scale(articulationrate)+scale
+           (pausedur)+(1|name), dfchi, family = "binomial")
+summary(mchi)
+
+#Model including all four features
+m = glmer(diagnosis ~ scale(speechdur)+scale(fsd)+scale(articulationrate)+scale
+           (pausedur)+(1|name), df, family = "binomial")
+summary(m)
+```
+
